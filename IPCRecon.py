@@ -9,11 +9,11 @@ grouped by category: Security, Remote Access, Offensive, Databases, etc.
 Requires: impacket
 
 Usage:
-    python3 pipe_filter.py domain/user:password@target
-    python3 pipe_filter.py domain/user:password@target -show-windows
-    python3 pipe_filter.py domain/user:password@target -hide noise
-    python3 pipe_filter.py domain/user@target -hashes :NTHASH -json
-    python3 pipe_filter.py domain/user@target -k -dc-ip 10.0.0.1
+    python3 IPCRecon.py domain/user:password@target
+    python3 IPCRecon.py domain/user:password@target -show-windows
+    python3 IPCRecon.py domain/user:password@target -hide noise
+    python3 IPCRecon.py domain/user@target -hashes :NTHASH -json
+    python3 IPCRecon.py domain/user@target -k -dc-ip 10.0.0.1
 """
 
 from __future__ import print_function
