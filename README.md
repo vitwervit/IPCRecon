@@ -24,14 +24,14 @@ or
 pipx install git+https://github.com/vitwervit/IPCRecon
  
 # Single host with credentials
-python3 pipe_filter.py domain/user:password@10.0.0.5
+python3 IPCRecon.py domain/user:password@10.0.0.5
  
 # Null session
-python3 pipe_filter.py @10.0.0.5
+python3 IPCRecon.py @10.0.0.5
  
 # Mass scan with GNU parallel
 cat targets.txt | parallel -j 10 --timeout 30 --tag \
-  python3 pipe_filter.py 'domain/user:pass@{}' 2>/dev/null
+  python3 IPCRecon.py 'domain/user:pass@{}' 2>/dev/null
 ```
 
 ## Output Example
@@ -67,19 +67,19 @@ cat targets.txt | parallel -j 10 --timeout 30 --tag \
  
 ```bash
 # Show default Windows pipes
-python3 pipe_filter.py ... -show-windows
+python3 IPCRecon.py ... -show-windows
  
 # Show runtime/driver noise (Chromium, .NET, printers...)
-python3 pipe_filter.py ... -show-noise
+python3 IPCRecon.py ... -show-noise
  
 # Show ONLY security and C2 categories
-python3 pipe_filter.py ... -only security c2
+python3 IPCRecon.py ... -only security c2
  
 # Hide specific categories
-python3 pipe_filter.py ... -hide database other
+python3 IPCRecon.py ... -hide database other
  
 # JSON output
-python3 pipe_filter.py ... -json
+python3 IPCRecon.py ... -json
 ```
 
 ## Extending the Database
