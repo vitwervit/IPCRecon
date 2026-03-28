@@ -16,7 +16,12 @@ Built-in database of **260+ patterns** covering EDR/AV, remote access tools, C2 
 ## Quick Start
  
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/vitwervit/IPCRecon
+cd IPCRecon && python3 -m venv venv && source ./venv/bin/activate && pip install -r requirements.txt
+
+or
+
+pipx install git+https://github.com/vitwervit/IPCRecon
  
 # Single host with credentials
 python3 pipe_filter.py domain/user:password@10.0.0.5
