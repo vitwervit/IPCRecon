@@ -1,0 +1,9 @@
+{
+    "_comment": "If you need to add your own named channels. Option -known-db",
+    "_categories": "windows | security | remote | c2 | database | monitoring | noise | other",
+    "pipes": [
+        {"pattern": "MyCorpAgent_IPC",  "software": "Corp Security Agent", "category": "security",  "type": "exact"},
+        {"pattern": "^CorpVPN_",        "software": "Corp VPN Client",     "category": "remote",    "type": "regex"},
+        {"pattern": "^InternalApp_",    "software": "Internal App",        "category": "other",     "type": "regex"}
+    ]
+}
