@@ -53,8 +53,9 @@ CAT_LABELS = OrderedDict([
     ("windows",    "🪟 Windows System (default)"),
 ])
 
-# Категории, скрытые по умолчанию
-DEFAULT_HIDDEN = {"windows"}
+
+# It is added to hidden set only when -show-windows is NOT specified (see main()).
+DEFAULT_HIDDEN = set()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -118,34 +119,21 @@ def _build_db():
     #  Shown by default! These indicate coercion/relay/privesc vectors.
     # ═══════════════════════════════════════════════════════════════════
 
-    # ADCS — certipy find, ESC1-ESC13, relay to HTTP enrollment
     exact("cert",  "ADCS (Certificate Services) → ESC", "attack")
-
-    # Print Spooler — SpoolSample/PrinterBug coercion, PrintNightmare RCE
     exact("spoolss", "Print Spooler → SpoolSample coercion, PrintNightmare", "attack")
-
-    # WebClient (WebDAV) — HTTP-based coercion, NTLM relay без SMB signing
     exact("DAV RPC SERVICE", "WebClient → HTTP coercion, NTLM relay (no SMB signing)", "attack")
-
-    # EFS — PetitPotam coercion
     exact("efsrpc", "EFS RPC → PetitPotam coercion", "attack")
     exact("efsr",   "EFS RPC → PetitPotam coercion", "attack")
-
-    # Netlogon — ZeroLogon (CVE-2020-1472), DCSync relay target
     exact("netlogon", "Netlogon → ZeroLogon (CVE-2020-1472)", "attack")
-
-    # DFS — DFSCoerce coercion
     exact("netdfs", "DFS → DFSCoerce coercion", "attack")
 
     # ═══════════════════════════════════════════════════════════════════
     #  SECURITY / EDR / AV
     # ═══════════════════════════════════════════════════════════════════
 
-    # Windows Defender
-    exact("MsMpComPipe", "Windows Defender",            "security")
     rx(r"^MsMpCom",      "Windows Defender",            "security")
 
-    # Kaspersky — hex GUID pipes with various suffixes: _DD_, _OI_, _RC_, _BAB...
+    # Kaspersky
     rx(r"^kscipc\\",     "Kaspersky Security Center (KSC)", "security")
     rx(r"^[A-F0-9]{32}(_[A-Z]{2,3}_[A-F0-9]+|_[A-F0-9]+)*$",
                          "Kaspersky Endpoint Security",     "security")
@@ -224,7 +212,7 @@ def _build_db():
     # Positive Technologies (MaxPatrol, PT NAD, XDR)
     rx(r"^PTAgentPipe_",  "Positive Technologies (MaxPatrol)", "security")
 
-    # SafeNet Sentinel (HASP hardware key licensing, not EDR)
+    # SafeNet Sentinel (HASP hardware key licensing)
     rx(r"^SafeNet-SentinelPIPE-", "SafeNet Sentinel (HASP)", "security")
 
     # ═══════════════════════════════════════════════════════════════════
@@ -323,7 +311,7 @@ def _build_db():
     #  NOISE (runtime, drivers, printers…)
     # ═══════════════════════════════════════════════════════════════════
 
-    # Chromium / Electron (Chrome, Edge, Teams, VS Code, Slack…)
+    # Chromium / Electron
     rx(r"^crashpad_\d+_",          "Chromium (crashpad)",     "noise")
     rx(r"LOCAL\\crashpad_",        "Chromium (crashpad)",     "noise")
     rx(r"^mojo\.\d+\.\d+\.\d+",   "Chromium (mojo IPC)",    "noise")
@@ -362,7 +350,7 @@ def _build_db():
 
     # Intel
     rx(r"^Intel\.",                "Intel Graphics Driver",    "noise")
-    rx(r"^IGESystrayPipe",         "Intel Graphics (systray)", "noise")
+    rx(r"^IGESystrayPipe$",        "Intel Graphics (systray)", "noise")
 
     # NVIDIA
     rx(r"^Nv[A-Z]",               "NVIDIA Driver",           "noise")
@@ -397,7 +385,7 @@ def _build_db():
     # Kyocera
     rx(r"^kyoceradocumentsolutions\\", "Kyocera Printer",     "noise")
     rx(r"^kds\\",                  "Kyocera Printer",         "noise")
-    rx(r"^KmInst32",              "Kyocera Printer Installer","noise")
+    rx(r"^KmInst32$",              "Kyocera Printer Installer","noise")
 
     # PM2 (Node.js)
     rx(r"^pm2_",                   "PM2 (Node.js)",           "noise")
@@ -410,13 +398,12 @@ def _build_db():
     rx(r"^qt-[A-F0-9]+-",         "Qt Framework (app IPC)",  "noise")
     rx(r"^qtsingleapp-",          "Qt Framework (single instance)", "noise")
 
-    # Windows Speech
-    rx(r"^SapiPipeTransport",      "Windows Speech API",      "noise")
+    rx(r"^SapiPipeTransport$",     "Windows Speech API",      "noise")
 
     # IIS
     rx(r"^iisipm",                 "IIS Worker Process",      "noise")
-    rx(r"^iislogpipe",             "IIS Logging",             "noise")
-    rx(r"^wbhstipm",              "IIS Web Host Service",     "noise")
+    rx(r"^iislogpipe$",            "IIS Logging",             "noise")
+    rx(r"^wbhstipm$",              "IIS Web Host Service",    "noise")
 
     # FlexNet / Flexera licensing
     rx(r"FlexNet Licensing",       "FlexNet Licensing",       "noise")
@@ -486,13 +473,36 @@ def _build_db():
     return db
 
 
+def _deduplicate_db(db):
+    seen_exact = set()
+    seen_regex = set()
+    deduped = []
+    for entry in db:
+        pattern, software, cat, ptype = entry
+        if ptype == "exact":
+            key = pattern  # already lowercased string
+            if key in seen_exact:
+                logging.debug(f"Duplicate exact pipe pattern skipped: '{pattern}'")
+                continue
+            seen_exact.add(key)
+        elif ptype == "regex":
+            key = pattern.pattern  # compiled regex → its source string
+            if key in seen_regex:
+                logging.debug(f"Duplicate regex pattern skipped: '{key}'")
+                continue
+            seen_regex.add(key)
+        deduped.append(entry)
+    return deduped
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  PIPE FILTER
 # ══════════════════════════════════════════════════════════════════════════════
 
 class PipeFilter:
     def __init__(self, extra_db_path=None):
-        self.db = _build_db()
+        raw_db = _build_db()
+        self.db = _deduplicate_db(raw_db)
         if extra_db_path:
             self._load_extra(extra_db_path)
 
@@ -502,13 +512,37 @@ class PipeFilter:
             {"pattern":"...", "software":"...", "category":"...", "type":"exact|regex"}
         ]}
         """
-        with open(path, "r") as f:
-            data = json.load(f)
-        for e in data.get("pipes", []):
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            logging.error(f"Failed to load extra pipe database '{path}': {e}")
+            return
+
+        for i, e in enumerate(data.get("pipes", [])):
+            if "pattern" not in e or "software" not in e:
+                logging.warning(
+                    f"Entry #{i} in '{path}' is missing required key(s) "
+                    f"('pattern' and/or 'software') — skipped."
+                )
+                continue
             cat = e.get("category", "other")
+            if cat not in CAT_LABELS:
+                logging.warning(
+                    f"Entry #{i} in '{path}' has unknown category '{cat}' — "
+                    f"falling back to 'other'."
+                )
+                cat = "other"
             if e.get("type") == "regex":
-                self.db.append((re.compile(e["pattern"], re.IGNORECASE),
-                                e["software"], cat, "regex"))
+                try:
+                    compiled = re.compile(e["pattern"], re.IGNORECASE)
+                except re.error as err:
+                    logging.warning(
+                        f"Entry #{i} in '{path}' has invalid regex "
+                        f"'{e['pattern']}': {err} — skipped."
+                    )
+                    continue
+                self.db.append((compiled, e["software"], cat, "regex"))
             else:
                 self.db.append((e["pattern"].lower(), e["software"], cat, "exact"))
 
@@ -552,7 +586,6 @@ class C:
     CN = "\033[96m";  P  = "\033[95m";  W  = "\033[97m"
     B  = "\033[1m";   D  = "\033[2m";   E  = "\033[0m"
 
-# Цвета заголовков категорий
 CAT_COLORS = {
     "c2":         C.R,
     "unknown":    C.Y,
@@ -591,18 +624,15 @@ def print_results(classified, remote, hidden_cats, auth_method=None):
         print(f"  {color}{C.B}{label}{C.E}  ({len(items)})")
 
         if cat == "unknown":
-            # Unknown — просто список без группировки
             for pipe_name, _ in items:
                 print(f"    {C.Y}●{C.E} {pipe_name}")
         elif cat in ("c2", "attack"):
-            # Attack surface — подсветить с указанием вектора
             for pipe_name, sw in items:
                 if sw:
                     print(f"    {C.R}▸{C.E} {pipe_name}  {C.R}← {sw}{C.E}")
                 else:
                     print(f"    {C.R}▸{C.E} {pipe_name}")
         else:
-            # Всё остальное — группировка по software
             by_sw = {}
             for pipe_name, sw in items:
                 by_sw.setdefault(sw or "?", []).append(pipe_name)
@@ -618,7 +648,6 @@ def print_results(classified, remote, hidden_cats, auth_method=None):
     if not found_anything:
         print(f"  {C.D}Nothing to show (all pipes are default Windows).{C.E}\n")
 
-    # Подвал: скрытые категории
     hidden_summary = []
     for cat in hidden_cats:
         n = len(classified.get(cat, []))
@@ -693,6 +722,22 @@ def main():
     logger.init()
     logging.getLogger().setLevel(logging.DEBUG if o.debug else logging.INFO)
 
+    valid_cats = set(CAT_LABELS.keys())
+    if o.hide:
+        bad = [c for c in o.hide if c not in valid_cats]
+        if bad:
+            logging.warning(
+                f"Unknown category name(s) in -hide: {bad}. "
+                f"Valid categories: {sorted(valid_cats)}"
+            )
+    if o.only:
+        bad = [c for c in o.only if c not in valid_cats]
+        if bad:
+            logging.warning(
+                f"Unknown category name(s) in -only: {bad}. "
+                f"Valid categories: {sorted(valid_cats)}"
+            )
+
     domain, username, password, remoteName = parse_target(o.target)
     lmhash, nthash = o.hashes.split(":") if o.hashes else ("", "")
     target_ip = o.target_ip or remoteName
@@ -704,12 +749,8 @@ def main():
         password = getpass("Password: ")
 
     # ── Подключение ──
-    smb = None
-    auth_method = None
-
     def try_connect(user, passwd, dom, lm, nt, method_name):
-        """Attempt SMB connect + IPC$ access. Returns (SMBConnection, method) or raises."""
-        nonlocal smb, auth_method
+        """Attempt SMB connect + IPC$ access. Returns (SMBConnection, method_str) or raises."""
         conn = SMBConnection(remoteName, target_ip)
         if o.k:
             conn.kerberosLogin(user, passwd, dom, lm, nt, o.aesKey, o.dc_ip)
@@ -717,31 +758,32 @@ def main():
             conn.login(user, passwd, dom, lm, nt)
         # Verify we can actually list IPC$ (auth may succeed but access denied)
         conn.listPath("IPC$", "\\*")
-        smb = conn
-        auth_method = method_name
-        return True
+        return conn, method_name
 
-    # Если заданы креды — пробуем только их
+    smb = None
+    auth_method = None
+
     if username:
+        method_label = "kerberos" if o.k else "credentials"
         try:
-            try_connect(username, password, domain, lmhash, nthash, "credentials")
+            smb, auth_method = try_connect(
+                username, password, domain, lmhash, nthash, method_label
+            )
         except Exception as e:
             logging.error(f"Authentication failed: {e}")
             sys.exit(1)
     else:
-        # Нет username → пробуем null/guest с fallback
         strategies = [
-            # (user,  pass, domain, lm, nt, description)
-            ("",     "",   "",     "", "", "null session (anonymous)"),
-            ("Guest","",   "",     "", "", "Guest account"),
-            ("",     "",   domain, "", "", "null session (domain context)"),
+            ("",      "",  "",     "", "", "null session (anonymous)"),
+            ("Guest", "",  "",     "", "", "Guest account"),
+            ("",      "",  domain, "", "", "null session (domain context)"),
         ]
 
         last_error = None
         for s_user, s_pass, s_dom, s_lm, s_nt, s_desc in strategies:
             try:
                 logging.debug(f"Trying {s_desc}...")
-                try_connect(s_user, s_pass, s_dom, s_lm, s_nt, s_desc)
+                smb, auth_method = try_connect(s_user, s_pass, s_dom, s_lm, s_nt, s_desc)
                 logging.info(f"Connected via {s_desc}")
                 break
             except Exception as e:
@@ -756,9 +798,9 @@ def main():
                 f"  This is expected on modern Windows (10 1709+, Server 2019+)\n"
                 f"  which block null sessions to IPC$ by default.\n\n"
                 f"  Solutions:\n"
-                f"    1. Use domain credentials:  pipe_filter.py domain/user:pass@{remoteName}\n"
-                f"    2. Use NTLM hash:           pipe_filter.py domain/user@{remoteName} -hashes :NTHASH\n"
-                f"    3. Use Kerberos:             pipe_filter.py domain/user@{remoteName} -k -no-pass\n\n"
+                f"    1. Use domain credentials:  IPCRecon.py domain/user:pass@{remoteName}\n"
+                f"    2. Use NTLM hash:            IPCRecon.py domain/user@{remoteName} -hashes :NTHASH\n"
+                f"    3. Use Kerberos:             IPCRecon.py domain/user@{remoteName} -k -no-pass\n\n"
                 f"  Note: any valid domain user works, no admin rights needed."
             )
             sys.exit(1)
@@ -773,7 +815,7 @@ def main():
     finally:
         try:
             smb.logoff()
-        except:
+        except Exception:
             pass
 
     classified = pf.classify(all_pipes)
@@ -788,7 +830,7 @@ def main():
         if not o.show_noise:
             hidden.add("noise")
         if o.hide:
-            hidden.update(o.hide)
+            hidden.update(c for c in o.hide if c in valid_cats)
 
     # ── Вывод ──
     if o.json:
